@@ -10,6 +10,9 @@ arm/disarm the target drone automatically.**
 to a labeled sample detection instead of failing — so this repo is fully
 explorable without any setup. (See `demo/sample_detection.jpg`.)
 
+📄 **[Full project report (PDF)](docs/PROJECT_REPORT.pdf)** — a 5-page writeup
+covering the overview, architecture, engineering decisions, and roadmap.
+
 ## What this demonstrates
 - End-to-end ML product thinking: dataset → hosted inference → product UI, not just a notebook
 - Browser-based camera capture (not server-side), so live detection works for every visitor once deployed publicly, and multiple people can use it at once without interfering with each other (state is scoped per-session, not a shared global)
