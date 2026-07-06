@@ -1,5 +1,12 @@
 # Drone GCS — Real-Time Drone Detection Console
 
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-3.0-000000?logo=flask&logoColor=white)
+![Roboflow](https://img.shields.io/badge/Inference-Roboflow-6706CE)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Status](https://img.shields.io/badge/Phase%201-Complete-brightgreen)
+![Status](https://img.shields.io/badge/Phase%202-Planned-yellow)
+
 A Flask web app that detects drones from a live webcam or an uploaded image/video,
 using a Roboflow-hosted computer vision model. Built as Phase 1 of a larger
 project: **Phase 2 will connect a confirmed detection to Mission Planner to
