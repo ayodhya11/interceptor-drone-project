@@ -24,6 +24,7 @@ Open http://127.0.0.1:5000
 import os
 import time
 import json
+import base64
 from datetime import datetime
 from functools import wraps
 
@@ -31,6 +32,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import cv2
+import numpy as np
 from flask import (
     Flask, render_template, request, redirect, url_for,
     session, Response, flash, jsonify, send_file
@@ -39,7 +41,6 @@ from werkzeug.utils import secure_filename
 
 import detector
 import detection_log
-from webcam_stream import WebcamInference
 
 # ----------------------------------------------------------------------------
 # Config
@@ -50,7 +51,6 @@ RESULT_DIR = os.path.join(BASE_DIR, "static", "results")
 
 ALLOWED_IMG = {"jpg", "jpeg", "png", "bmp", "webp"}
 ALLOWED_VID = {"mp4", "avi", "mov", "mkv"}
-WEBCAM_INDEX = int(os.environ.get("WEBCAM_INDEX", "0"))
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "change-this-secret-key-later")
@@ -60,8 +60,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static", "training"), exist_ok=True)
 
-# single shared webcam session
-cam = WebcamInference(index=WEBCAM_INDEX)
+CONFIRM_FRAMES = 2   # consecutive detections needed before the alert/Mission Planner hook fires
 
 
 @app.template_filter("datetimeformat")
@@ -207,6 +206,9 @@ def _detect_video(in_path, fname):
 @app.route("/detect/webcam")
 @login_required
 def detect_webcam():
+    # fresh state each time the page is opened
+    session["consecutive_hits"] = 0
+    session["drone_alerted"] = False
     return render_template(
         "detect_webcam.html",
         email=session["email"],
@@ -214,38 +216,82 @@ def detect_webcam():
     )
 
 
-@app.route("/video_feed")
+def _decode_data_url(data_url):
+    """Turn a 'data:image/jpeg;base64,...' string into a BGR numpy frame."""
+    if "," in data_url:
+        data_url = data_url.split(",", 1)[1]
+    img_bytes = base64.b64decode(data_url)
+    arr = np.frombuffer(img_bytes, np.uint8)
+    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+
+@app.route("/infer_frame", methods=["POST"])
 @login_required
-def video_feed():
-    if not detector.api_configured():
-        return "ROBOFLOW_API_KEY is not set.", 503
-    cam.start()
-    if not cam.running:
-        return "Could not open webcam.", 503
-    return Response(cam.frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
+def infer_frame():
+    """
+    Runs on a single frame captured in the VISITOR'S OWN browser (via getUserMedia).
+    This is what makes live detection work once the app is deployed publicly —
+    there's no server-side camera involved at all.
+    """
+    data = request.get_json(silent=True) or {}
+    data_url = data.get("image", "")
+    if not data_url:
+        return jsonify(error="no image provided"), 400
+
+    try:
+        frame = _decode_data_url(data_url)
+        if frame is None:
+            return jsonify(error="could not decode image"), 400
+    except Exception as e:  # noqa: BLE001
+        return jsonify(error=str(e)), 400
+
+    demo = not detector.api_configured()
+    if demo:
+        h, w = frame.shape[:2]
+        preds = detector.demo_predictions(w, h)
+    else:
+        try:
+            preds = detector.infer(frame)
+        except Exception as e:  # noqa: BLE001
+            return jsonify(error=str(e), predictions=[], demo=False), 200
+
+    if preds:
+        detection_log.log_detections("webcam-browser" + (":demo" if demo else ""), preds)
+
+    # per-visitor state via the Flask session (cookie-based) — correct even
+    # with many people using the deployed site at the same time
+    hits = session.get("consecutive_hits", 0)
+    hits = hits + 1 if preds else 0
+    session["consecutive_hits"] = hits
+    drone_confirmed = hits >= CONFIRM_FRAMES
+
+    if drone_confirmed and not session.get("drone_alerted"):
+        session["drone_alerted"] = True
+        # PHASE 2 hook point: connect to Mission Planner and arm/disarm here.
+        print(">>> DRONE DETECTED (browser feed) — Mission Planner trigger point (not armed yet)")
+
+    return jsonify(predictions=preds, demo=demo, drone_confirmed=drone_confirmed)
 
 
-@app.route("/stop_feed", methods=["POST"])
+@app.route("/save_snapshot", methods=["POST"])
 @login_required
-def stop_feed():
-    cam.stop()
-    return ("", 204)
+def save_snapshot():
+    """Save a frame the browser already drew boxes onto (sent as a data URL)."""
+    data = request.get_json(silent=True) or {}
+    data_url = data.get("image", "")
+    if not data_url:
+        return jsonify(ok=False, error="No image data received."), 400
+    try:
+        if "," in data_url:
+            data_url = data_url.split(",", 1)[1]
+        img_bytes = base64.b64decode(data_url)
+    except Exception as e:  # noqa: BLE001
+        return jsonify(ok=False, error=str(e)), 400
 
-
-@app.route("/snapshot", methods=["POST"])
-@login_required
-def snapshot():
-    """Save the current webcam frame (with boxes drawn) to static/results/."""
-    if not cam.running or cam.frame is None:
-        return jsonify(ok=False, error="Webcam is not running."), 400
-    with cam.lock:
-        frame = cam.frame.copy()
-        preds = list(cam.predictions)
-    annotated = detector.draw(frame, preds)
     out_name = f"snapshot_{int(time.time())}.jpg"
-    cv2.imwrite(os.path.join(RESULT_DIR, out_name), annotated)
-    return jsonify(ok=True, url=url_for("static", filename=f"results/{out_name}"), count=len(preds))
+    with open(os.path.join(RESULT_DIR, out_name), "wb") as f:
+        f.write(img_bytes)
+    return jsonify(ok=True, url=url_for("static", filename=f"results/{out_name}"))
 
 
 @app.route("/upload_training", methods=["POST"])
@@ -267,12 +313,6 @@ def upload_training():
     else:
         flash("No valid PNG/JPG files were uploaded.")
     return redirect(url_for("dashboard"))
-
-
-@app.route("/status")
-@login_required
-def status():
-    return jsonify(drone_seen=cam.drone_seen, running=cam.running)
 
 
 @app.route("/download_report")

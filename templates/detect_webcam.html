@@ -21,56 +21,54 @@
   <div class="wrap">
     <p class="eyebrow">Bay 1 · Live</p>
     <h1>Real-time webcam detection</h1>
-    <p class="sub">This streams from the webcam on the machine running the server, not your
-      browser — that's why no browser permission prompt appears. On the first confirmed
-      detection, the Mission Planner trigger fires (Phase&nbsp;2 — not armed yet).</p>
+    <p class="sub">This uses <b>your own browser's camera</b> — clicking Start will prompt you for
+      camera permission (once per site). Frames never leave your session except to run detection;
+      nothing is recorded unless you click Save snapshot. This works the same whether the app is
+      running locally or deployed publicly.</p>
     <p class="sub" style="margin-top:-14px; font-size:13px">Getting false positives on people or background?
       Raise <code>CONFIDENCE_THRESHOLD</code> in your <code>.env</code> file (try 0.75–0.85). The
       alert below also waits for two detections in a row before firing, to ignore one-frame flickers.</p>
 
-    {% if model_ready %}
-      <div id="feed-box" class="scope-frame">
-        <span class="corner-tr"></span><span class="corner-bl"></span>
-        <span class="scope-hud">◉ LIVE · YOLO SCOPE</span>
-        <img id="feed-img" src="" alt="live webcam detection">
-        <div id="stopped-msg" class="empty" style="display:none; position:absolute">Camera stopped.</div>
-      </div>
-
-      <div class="action" style="margin-top:16px">
-        <button class="btn ghost" id="start-btn" style="flex:1">▶ Start camera</button>
-        <button class="btn ghost" id="stop-btn" style="flex:1">■ Stop camera</button>
-        <button class="btn ghost" id="snap-btn" style="flex:1">📷 Save snapshot</button>
-      </div>
-
-      <div class="alert-bar" id="alert">
-        <span class="led"></span>
-        <span id="alert-text">Camera is off. Click Start camera.</span>
-      </div>
-
-      <div class="card col-12" style="margin-top:22px">
-        <h2><span class="idx">◈</span> Saved snapshots</h2>
-        <div id="snap-gallery" class="gallery">
-          <div class="empty" id="snap-empty">No snapshots yet — click "Save snapshot" while the camera is running.</div>
-        </div>
-      </div>
-    {% else %}
-      <div class="alert-bar" style="border-color:var(--amber); color:var(--amber); margin-bottom:16px">
-        <span class="led" style="background:var(--amber)"></span>
-        <span>Demo mode — no live API key configured. Showing a labeled sample frame below instead of a real camera feed.</span>
-      </div>
-      <div class="scope-frame">
-        <span class="corner-tr"></span><span class="corner-bl"></span>
-        <span class="scope-hud">◉ DEMO · SAMPLE FRAME</span>
-        <img src="{{ url_for('static', filename='demo/sample_detection.jpg') }}" alt="demo detection sample">
-      </div>
-      <p style="color:var(--ink-dim); font-size:13px; margin-top:14px">
-        To enable real-time detection, set <code>ROBOFLOW_API_KEY</code> in <code>.env</code> and reload.</p>
+    {% if not model_ready %}
+    <div class="alert-bar" style="border-color:var(--amber); color:var(--amber); margin-bottom:16px">
+      <span class="led" style="background:var(--amber)"></span>
+      <span>Demo mode — no live API key configured. Your camera still streams normally, but every
+        detection shown is a fixed labeled sample, not a real one.</span>
+    </div>
     {% endif %}
+
+    <div id="feed-box" class="scope-frame">
+      <span class="corner-tr"></span><span class="corner-bl"></span>
+      <span class="scope-hud">◉ {{ 'LIVE · YOLO SCOPE' if model_ready else 'DEMO · YOLO SCOPE' }}</span>
+      <canvas id="canvas"></canvas>
+      <video id="video" autoplay playsinline muted style="display:none"></video>
+      <div id="idle-msg" class="empty" style="position:absolute">Click "Start camera" below — your browser will ask for permission.</div>
+    </div>
+
+    <div class="action" style="margin-top:16px">
+      <button class="btn ghost" id="start-btn" style="flex:1">▶ Start camera</button>
+      <button class="btn ghost" id="stop-btn" style="flex:1">■ Stop camera</button>
+      <button class="btn ghost" id="snap-btn" style="flex:1">📷 Save snapshot</button>
+    </div>
+
+    <div class="alert-bar" id="alert">
+      <span class="led"></span>
+      <span id="alert-text">Camera is off. Click Start camera.</span>
+    </div>
+
+    <div class="card col-12" style="margin-top:22px">
+      <h2><span class="idx">◈</span> Saved snapshots</h2>
+      <div id="snap-gallery" class="gallery">
+        <div class="empty" id="snap-empty">No snapshots yet — click "Save snapshot" while the camera is running.</div>
+      </div>
+    </div>
   </div>
 
   <script>
-    const img = document.getElementById('feed-img');
-    const stoppedMsg = document.getElementById('stopped-msg');
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const idleMsg = document.getElementById('idle-msg');
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
     const snapBtn = document.getElementById('snap-btn');
@@ -79,44 +77,110 @@
     const gallery = document.getElementById('snap-gallery');
     const snapEmpty = document.getElementById('snap-empty');
 
+    let stream = null;
+    let renderLoopId = null;
+    let inferTimer = null;
+    let latestPredictions = [];
     let running = false;
-    let poller = null;
+    const INFER_INTERVAL_MS = 700;   // how often we call the server for detection
 
-    function startCamera() {
-      img.src = "{{ url_for('video_feed') }}?t=" + Date.now();
-      stoppedMsg.style.display = 'none';
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      } catch (e) {
+        txt.textContent = 'Camera permission denied or unavailable: ' + e.message;
+        bar.classList.add('hot');
+        return;
+      }
+      video.srcObject = stream;
+      await video.play();
+
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      idleMsg.style.display = 'none';
       running = true;
       txt.textContent = 'Scanning… no drone detected yet.';
       bar.classList.remove('hot');
-      if (!poller) poller = setInterval(pollStatus, 1000);
+
+      renderLoop();
+      inferTimer = setInterval(captureAndInfer, INFER_INTERVAL_MS);
     }
 
-    async function stopCamera() {
-      try { await fetch("{{ url_for('stop_feed') }}", { method: 'POST' }); } catch (e) {}
-      img.src = "";
-      stoppedMsg.style.display = 'grid';
+    function stopCamera() {
       running = false;
+      if (inferTimer) { clearInterval(inferTimer); inferTimer = null; }
+      if (renderLoopId) { cancelAnimationFrame(renderLoopId); renderLoopId = null; }
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      idleMsg.style.display = 'grid';
+      latestPredictions = [];
       txt.textContent = 'Camera is off. Click Start camera.';
       bar.classList.remove('hot');
     }
 
-    async function pollStatus() {
+    // fast loop: keeps the video feeling smooth, drawing the last-known boxes every frame
+    function renderLoop() {
       if (!running) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      drawBoxes(latestPredictions);
+      renderLoopId = requestAnimationFrame(renderLoop);
+    }
+
+    function drawBoxes(predictions) {
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#00b0ff';
+      ctx.font = '14px monospace';
+      predictions.forEach(p => {
+        const x1 = p.x - p.width / 2, y1 = p.y - p.height / 2;
+        ctx.strokeRect(x1, y1, p.width, p.height);
+        const label = `${p.class} ${(p.confidence * 100).toFixed(0)}%`;
+        const tw = ctx.measureText(label).width;
+        ctx.fillStyle = '#00b0ff';
+        ctx.fillRect(x1, Math.max(0, y1 - 18), tw + 8, 18);
+        ctx.fillStyle = '#000';
+        ctx.fillText(label, x1 + 4, Math.max(12, y1 - 5));
+      });
+    }
+
+    // slower loop: sends one frame to the server for real detection
+    async function captureAndInfer() {
+      if (!running) return;
+      const off = document.createElement('canvas');
+      off.width = canvas.width; off.height = canvas.height;
+      off.getContext('2d').drawImage(video, 0, 0, off.width, off.height);
+      const dataUrl = off.toDataURL('image/jpeg', 0.7);
+
       try {
-        const r = await fetch("{{ url_for('status') }}");
-        const d = await r.json();
-        if (d.drone_seen) {
+        const r = await fetch("{{ url_for('infer_frame') }}", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl })
+        });
+        const data = await r.json();
+        if (data.error) return;
+        latestPredictions = data.predictions || [];
+
+        if (data.drone_confirmed) {
           bar.classList.add('hot');
-          txt.textContent = 'DRONE DETECTED — Mission Planner trigger point reached.';
+          txt.textContent = (data.demo ? 'DEMO: ' : '') + 'DRONE DETECTED — Mission Planner trigger point reached.';
+        } else if (latestPredictions.length === 0) {
+          bar.classList.remove('hot');
+          txt.textContent = 'Scanning… no drone detected yet.';
         }
-      } catch (e) { /* ignore transient errors */ }
+      } catch (e) { /* ignore transient network errors */ }
     }
 
     async function saveSnapshot() {
+      if (!running) { alert('Start the camera first.'); return; }
       snapBtn.disabled = true;
       snapBtn.textContent = 'Saving…';
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
       try {
-        const r = await fetch("{{ url_for('snapshot') }}", { method: 'POST' });
+        const r = await fetch("{{ url_for('save_snapshot') }}", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl })
+        });
         const d = await r.json();
         if (d.ok) {
           snapEmpty.style.display = 'none';
@@ -140,10 +204,8 @@
     stopBtn.addEventListener('click', stopCamera);
     snapBtn.addEventListener('click', saveSnapshot);
 
-    // stop the camera automatically if the user navigates away
-    window.addEventListener('beforeunload', () => {
-      navigator.sendBeacon("{{ url_for('stop_feed') }}");
-    });
+    // release the camera automatically if the visitor navigates away
+    window.addEventListener('beforeunload', stopCamera);
   </script>
 </body>
 </html>

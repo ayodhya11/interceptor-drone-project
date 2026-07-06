@@ -60,6 +60,15 @@ def infer(image):
     return []
 
 
+def demo_predictions(frame_w, frame_h):
+    """A single fixed, clearly-labeled prediction used when no API key is configured."""
+    return [{
+        "x": frame_w / 2, "y": frame_h / 2,
+        "width": frame_w * 0.32, "height": frame_h * 0.32,
+        "confidence": 0.88, "class": "drone (demo)", "class_id": 0,
+    }]
+
+
 def draw(frame, predictions, color=(0, 176, 255)):
     """Draw boxes + labels onto a BGR frame (in place) and return it."""
     for p in predictions:

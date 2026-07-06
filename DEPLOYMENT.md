@@ -56,6 +56,6 @@ Paste that URL into the "Live demo" line at the top of `README.md`, commit, and 
   detection log (`static/uploads/`, `static/results/`, `detections_log.jsonl`)
   will reset on redeploy or restart. Fine for a demo; for anything long-lived
   you'd want a real database or object storage.
-- Live webcam detection will not work on Render (see the "Known limitation"
-  note in the main README) — the app falls back to demo mode there
-  automatically, so this isn't a broken-looking failure.
+- Live webcam detection uses each visitor's own browser camera, so it works
+  correctly on Render (or any host) as long as the site is served over HTTPS
+  (Render provides this automatically).
