@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Access — Drone GCS</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="login-shell">
+    <div class="login-card">
+      <div class="scope">◈ Ground Control Station</div>
+      <h1>Drone Detection &amp; Tracking</h1>
+      <p class="sub" style="margin:10px 0 0">Sign in with your email to open the console.</p>
+
+      <form method="post" action="{{ url_for('login') }}">
+        <div class="field">
+          <label for="email">Operator email</label>
+          <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
+        </div>
+        <button class="btn" type="submit">Enter console →</button>
+      </form>
+
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}<div class="flash">⚠ {{ messages[0] }}</div>{% endif %}
+      {% endwith %}
+    </div>
+  </div>
+</body>
+</html>

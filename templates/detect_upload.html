@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upload detection — Drone GCS</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> <b>DRONE&nbsp;GCS</b> &nbsp;// file detection</div>
+    <nav class="topnav">
+      <a href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a class="active" href="{{ url_for('detect_upload') }}">Upload</a>
+      <a href="{{ url_for('detect_webcam') }}">Webcam</a>
+      <span class="who">{{ email }}</span>
+      <a href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+  </div>
+
+  <div class="wrap">
+    <p class="eyebrow">Bay 2 · File</p>
+    <h1>Upload image or video</h1>
+    <p class="sub">Run the Roboflow model on a still image or a clip, then view the annotated output. Every detection is logged automatically and shows up on the dashboard.</p>
+
+    {% if demo_mode %}
+    <div class="alert-bar" style="border-color:var(--amber); color:var(--amber); margin-bottom:14px">
+      <span class="led" style="background:var(--amber)"></span>
+      <span>Demo mode — no live API key configured. Uploading any file shows a labeled sample result below, not a real detection.</span>
+    </div>
+    {% endif %}
+
+    <div class="card col-12" style="max-width:640px">
+      <form method="post" enctype="multipart/form-data">
+        <div class="field">
+          <label for="file">Select file (jpg, png, mp4, mov, avi…)</label>
+          <input type="file" id="file" name="file"
+                 accept=".jpg,.jpeg,.png,.bmp,.webp,.mp4,.avi,.mov,.mkv" required>
+        </div>
+        <button class="btn" type="submit" style="margin-top:14px">Run detection →</button>
+      </form>
+      {% if error %}<div class="flash">⚠ {{ error }}</div>{% endif %}
+    </div>
+
+    {% if result_file %}
+      <div class="card col-12" style="margin-top:18px">
+        <h2><span class="idx">◈</span> Result</h2>
+        <div class="result-meta">Detections found: <b>{{ count }}</b></div>
+        <div style="margin-top:14px">
+          {% if result_type == 'image' %}
+            <div class="scope-frame">
+              <span class="corner-tr"></span><span class="corner-bl"></span>
+              <img src="{{ url_for('static', filename=result_file) }}" alt="detection result">
+            </div>
+          {% else %}
+            <video controls src="{{ url_for('static', filename=result_file) }}"></video>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</body>
+</html>

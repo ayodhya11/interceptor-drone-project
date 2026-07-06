@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard — Drone GCS</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> <b>DRONE&nbsp;GCS</b> &nbsp;// detection console</div>
+    <nav class="topnav">
+      <a class="active" href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('detect_upload') }}">Upload</a>
+      <a href="{{ url_for('detect_webcam') }}">Webcam</a>
+      <span class="who">{{ email }}</span>
+      <a href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+  </div>
+
+  <div class="wrap">
+    <p class="eyebrow">Mission overview</p>
+    <h1>Drone Detection &amp; Tracking</h1>
+    <p class="sub">A single console to review the model and detection history, then run live
+      detection. Detection results feed a Mission Planner trigger (arm / disarm) — wired in Phase&nbsp;2.</p>
+
+    {% if demo_mode %}
+    <div class="alert-bar" style="border-color:var(--amber); color:var(--amber); margin-bottom:10px">
+      <span class="led" style="background:var(--amber)"></span>
+      <span>Demo mode — no live Roboflow API key detected. Upload and webcam pages show a labeled sample result instead of live detection.</span>
+    </div>
+    {% endif %}
+
+    <div class="grid">
+
+      <!-- 01 · Aim -->
+      <div class="card col-8">
+        <h2><span class="idx">01</span> Project aim</h2>
+        <p style="color:var(--ink-dim)">
+          <!-- EDIT ME: replace with your own wording if you'd like -->
+          Detect drones in real time from a camera feed, and on the first confirmed
+          detection, connect to Mission Planner to arm and immediately disarm the
+          target drone. Detection runs on a Roboflow-hosted model.
+        </p>
+        <ul class="list">
+          <li><b>Model:</b> Roboflow hosted — <code>{{ model_id }}</code></li>
+          <li><b>Inference:</b> Roboflow serverless API, confidence threshold <code>{{ conf_threshold }}</code></li>
+          <li><b>Phase 1:</b> webcam + file detection <span class="badge ok">active</span></li>
+          <li><b>Phase 2:</b> Mission Planner arm/disarm <span class="badge warn">planned</span></li>
+        </ul>
+      </div>
+
+      <!-- model status -->
+      <div class="card col-4">
+        <h2><span class="idx">◈</span> Model status</h2>
+        {% if model_ready %}
+          <p><span class="badge ok">Roboflow connected</span></p>
+          <p style="color:var(--ink-dim); font-size:13px">Hosted model
+            <code>{{ model_id }}</code>. API key loaded, detection is ready.</p>
+        {% else %}
+          <p><span class="badge warn">API key missing</span></p>
+          <p style="color:var(--ink-dim); font-size:13px">Set <code>ROBOFLOW_API_KEY</code>
+            in your <code>.env</code> file, then reload.</p>
+        {% endif %}
+      </div>
+
+      <!-- 02 · Detection results (fully automatic) -->
+      <div class="card col-12">
+        <h2><span class="idx">02</span> Detection results <span style="color:var(--ink-dim); font-weight:400; font-size:13px">— logged automatically, nothing to fill in</span></h2>
+
+        <div class="stat-row">
+          <div class="stat"><span class="n">{{ results.total }}</span><span class="l">Total detections</span></div>
+          <div class="stat"><span class="n">{{ (results.avg_confidence * 100)|round(1) }}%</span><span class="l">Avg confidence</span></div>
+          <div class="stat"><span class="n">{{ results.avg_width }}×{{ results.avg_height }}</span><span class="l">Avg box size (px)</span></div>
+          {% for cls, cnt in results.by_class.items() %}
+          <div class="stat"><span class="n">{{ cnt }}</span><span class="l">{{ cls }}</span></div>
+          {% endfor %}
+        </div>
+
+        {% if results.total > 0 %}
+          <div style="margin-top:22px">
+            <canvas id="detChart" height="70"></canvas>
+          </div>
+
+          <h3 style="font-size:14px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:.08em; margin:26px 0 10px">Recent detections</h3>
+          <div style="overflow-x:auto">
+            <table style="width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12px">
+              <thead>
+                <tr style="color:var(--cyan); text-align:left; border-bottom:1px solid var(--line)">
+                  <th style="padding:8px 10px">Time</th>
+                  <th style="padding:8px 10px">Source</th>
+                  <th style="padding:8px 10px">Class</th>
+                  <th style="padding:8px 10px">Confidence</th>
+                  <th style="padding:8px 10px">Width</th>
+                  <th style="padding:8px 10px">Height</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in results.recent %}
+                <tr style="border-bottom:1px solid var(--line); color:var(--ink-dim)">
+                  <td style="padding:7px 10px">{{ r.ts|int|datetimeformat }}</td>
+                  <td style="padding:7px 10px">{{ r.source }}</td>
+                  <td style="padding:7px 10px; color:var(--ink)">{{ r["class"] }}</td>
+                  <td style="padding:7px 10px">{{ (r.confidence * 100)|round(1) }}%</td>
+                  <td style="padding:7px 10px">{{ r.width }}px</td>
+                  <td style="padding:7px 10px">{{ r.height }}px</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty" style="margin-top:16px">No detections logged yet — run the webcam or upload an image to populate this automatically.</div>
+        {% endif %}
+
+        <div class="action" style="margin-top:20px">
+          <a class="btn ghost" href="{{ url_for('download_report') }}" style="width:auto">⬇ Download full report (.json)</a>
+        </div>
+      </div>
+
+      <!-- 03 · Training graphs -->
+      <div class="card col-12">
+        <h2><span class="idx">03</span> Training graphs</h2>
+        <p style="color:var(--ink-dim); font-size:13px; margin-bottom:16px">
+          If you trained a custom model on Colab, upload the output images (e.g.
+          <code>results.png</code>, <code>confusion_matrix.png</code>, <code>PR_curve.png</code>)
+          here and they'll appear below.</p>
+
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}<div class="flash" style="margin-bottom:14px">{{ messages[0] }}</div>{% endif %}
+        {% endwith %}
+
+        <form method="post" action="{{ url_for('upload_training') }}" enctype="multipart/form-data"
+              style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:20px">
+          <input type="file" name="training_files" accept=".png,.jpg,.jpeg" multiple required
+                 style="flex:1; min-width:220px">
+          <button class="btn ghost" type="submit" style="width:auto">⬆ Upload images</button>
+        </form>
+
+        {% if training_imgs %}
+          <div class="gallery">
+            {% for img in training_imgs %}
+              <a href="{{ url_for('static', filename='training/' + img) }}" target="_blank">
+                <img src="{{ url_for('static', filename='training/' + img) }}" alt="{{ img }}">
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty">No training images yet — upload PNG/JPG files above.</div>
+        {% endif %}
+      </div>
+
+      <!-- 04 · Run detection -->
+      <div class="card col-12">
+        <h2><span class="idx">04</span> Run detection</h2>
+        <div class="action">
+          <a class="tile" href="{{ url_for('detect_webcam') }}">
+            <div class="k">Live · Bay 1</div>
+            <h3>Webcam detection →</h3>
+            <p>Real-time detection from your webcam. Start here.</p>
+          </a>
+          <a class="tile" href="{{ url_for('detect_upload') }}">
+            <div class="k">File · Bay 2</div>
+            <h3>Upload image or video →</h3>
+            <p>Run the model on a file and view the annotated result.</p>
+          </a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  {% if results.total > 0 %}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script>
+    const ctx = document.getElementById('detChart');
+    const buckets = {{ results.chart|tojson }};
+    const labels = buckets.map((_, i) => (23 - i) + 'h ago').reverse();
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Detections per hour (last 24h)',
+          data: buckets,
+          backgroundColor: 'rgba(255,176,32,0.55)',
+          borderColor: '#ffb020',
+          borderWidth: 1,
+        }]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero: true, ticks: { color: '#7f93a6' }, grid: { color: '#223243' } },
+          x: { ticks: { color: '#7f93a6', maxTicksLimit: 8 }, grid: { display: false } }
+        },
+        plugins: { legend: { labels: { color: '#dfe8f0' } } }
+      }
+    });
+  </script>
+  {% endif %}
+</body>
+</html>

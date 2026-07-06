@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Webcam detection — Drone GCS</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> <b>DRONE&nbsp;GCS</b> &nbsp;// live feed</div>
+    <nav class="topnav">
+      <a href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('detect_upload') }}">Upload</a>
+      <a class="active" href="{{ url_for('detect_webcam') }}">Webcam</a>
+      <span class="who">{{ email }}</span>
+      <a href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+  </div>
+
+  <div class="wrap">
+    <p class="eyebrow">Bay 1 · Live</p>
+    <h1>Real-time webcam detection</h1>
+    <p class="sub">This streams from the webcam on the machine running the server, not your
+      browser — that's why no browser permission prompt appears. On the first confirmed
+      detection, the Mission Planner trigger fires (Phase&nbsp;2 — not armed yet).</p>
+    <p class="sub" style="margin-top:-14px; font-size:13px">Getting false positives on people or background?
+      Raise <code>CONFIDENCE_THRESHOLD</code> in your <code>.env</code> file (try 0.75–0.85). The
+      alert below also waits for two detections in a row before firing, to ignore one-frame flickers.</p>
+
+    {% if model_ready %}
+      <div id="feed-box" class="scope-frame">
+        <span class="corner-tr"></span><span class="corner-bl"></span>
+        <span class="scope-hud">◉ LIVE · YOLO SCOPE</span>
+        <img id="feed-img" src="" alt="live webcam detection">
+        <div id="stopped-msg" class="empty" style="display:none; position:absolute">Camera stopped.</div>
+      </div>
+
+      <div class="action" style="margin-top:16px">
+        <button class="btn ghost" id="start-btn" style="flex:1">▶ Start camera</button>
+        <button class="btn ghost" id="stop-btn" style="flex:1">■ Stop camera</button>
+        <button class="btn ghost" id="snap-btn" style="flex:1">📷 Save snapshot</button>
+      </div>
+
+      <div class="alert-bar" id="alert">
+        <span class="led"></span>
+        <span id="alert-text">Camera is off. Click Start camera.</span>
+      </div>
+
+      <div class="card col-12" style="margin-top:22px">
+        <h2><span class="idx">◈</span> Saved snapshots</h2>
+        <div id="snap-gallery" class="gallery">
+          <div class="empty" id="snap-empty">No snapshots yet — click "Save snapshot" while the camera is running.</div>
+        </div>
+      </div>
+    {% else %}
+      <div class="alert-bar" style="border-color:var(--amber); color:var(--amber); margin-bottom:16px">
+        <span class="led" style="background:var(--amber)"></span>
+        <span>Demo mode — no live API key configured. Showing a labeled sample frame below instead of a real camera feed.</span>
+      </div>
+      <div class="scope-frame">
+        <span class="corner-tr"></span><span class="corner-bl"></span>
+        <span class="scope-hud">◉ DEMO · SAMPLE FRAME</span>
+        <img src="{{ url_for('static', filename='demo/sample_detection.jpg') }}" alt="demo detection sample">
+      </div>
+      <p style="color:var(--ink-dim); font-size:13px; margin-top:14px">
+        To enable real-time detection, set <code>ROBOFLOW_API_KEY</code> in <code>.env</code> and reload.</p>
+    {% endif %}
+  </div>
+
+  <script>
+    const img = document.getElementById('feed-img');
+    const stoppedMsg = document.getElementById('stopped-msg');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const snapBtn = document.getElementById('snap-btn');
+    const bar = document.getElementById('alert');
+    const txt = document.getElementById('alert-text');
+    const gallery = document.getElementById('snap-gallery');
+    const snapEmpty = document.getElementById('snap-empty');
+
+    let running = false;
+    let poller = null;
+
+    function startCamera() {
+      img.src = "{{ url_for('video_feed') }}?t=" + Date.now();
+      stoppedMsg.style.display = 'none';
+      running = true;
+      txt.textContent = 'Scanning… no drone detected yet.';
+      bar.classList.remove('hot');
+      if (!poller) poller = setInterval(pollStatus, 1000);
+    }
+
+    async function stopCamera() {
+      try { await fetch("{{ url_for('stop_feed') }}", { method: 'POST' }); } catch (e) {}
+      img.src = "";
+      stoppedMsg.style.display = 'grid';
+      running = false;
+      txt.textContent = 'Camera is off. Click Start camera.';
+      bar.classList.remove('hot');
+    }
+
+    async function pollStatus() {
+      if (!running) return;
+      try {
+        const r = await fetch("{{ url_for('status') }}");
+        const d = await r.json();
+        if (d.drone_seen) {
+          bar.classList.add('hot');
+          txt.textContent = 'DRONE DETECTED — Mission Planner trigger point reached.';
+        }
+      } catch (e) { /* ignore transient errors */ }
+    }
+
+    async function saveSnapshot() {
+      snapBtn.disabled = true;
+      snapBtn.textContent = 'Saving…';
+      try {
+        const r = await fetch("{{ url_for('snapshot') }}", { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) {
+          snapEmpty.style.display = 'none';
+          const a = document.createElement('a');
+          a.href = d.url; a.target = '_blank';
+          const im = document.createElement('img');
+          im.src = d.url;
+          a.appendChild(im);
+          gallery.prepend(a);
+        } else {
+          alert(d.error || 'Could not save snapshot.');
+        }
+      } catch (e) {
+        alert('Snapshot failed.');
+      }
+      snapBtn.disabled = false;
+      snapBtn.textContent = '📷 Save snapshot';
+    }
+
+    startBtn.addEventListener('click', startCamera);
+    stopBtn.addEventListener('click', stopCamera);
+    snapBtn.addEventListener('click', saveSnapshot);
+
+    // stop the camera automatically if the user navigates away
+    window.addEventListener('beforeunload', () => {
+      navigator.sendBeacon("{{ url_for('stop_feed') }}");
+    });
+  </script>
+</body>
+</html>
