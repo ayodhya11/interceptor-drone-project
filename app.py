@@ -41,6 +41,7 @@ from werkzeug.utils import secure_filename
 
 import detector
 import detection_log
+import mission_planner
 
 # ----------------------------------------------------------------------------
 # Config
@@ -265,12 +266,21 @@ def infer_frame():
     session["consecutive_hits"] = hits
     drone_confirmed = hits >= CONFIRM_FRAMES
 
+    mp_result = None
     if drone_confirmed and not session.get("drone_alerted"):
         session["drone_alerted"] = True
-        # PHASE 2 hook point: connect to Mission Planner and arm/disarm here.
-        print(">>> DRONE DETECTED (browser feed) — Mission Planner trigger point (not armed yet)")
+        # PHASE 2: connect to Mission Planner and arm the vehicle.
+        # Stays in simulation (log-only) mode unless both
+        # MISSION_PLANNER_CONNECTION and ARM_ON_DETECTION=true are set —
+        # see mission_planner.py for the safety rationale.
+        mp_result = mission_planner.trigger(
+            arm=True, reason=f"webcam confirmed ({hits} consecutive frames)"
+        )
 
-    return jsonify(predictions=preds, demo=demo, drone_confirmed=drone_confirmed)
+    return jsonify(
+        predictions=preds, demo=demo, drone_confirmed=drone_confirmed,
+        mission_planner=mp_result,
+    )
 
 
 @app.route("/save_snapshot", methods=["POST"])
@@ -292,6 +302,27 @@ def save_snapshot():
     with open(os.path.join(RESULT_DIR, out_name), "wb") as f:
         f.write(img_bytes)
     return jsonify(ok=True, url=url_for("static", filename=f"results/{out_name}"))
+
+
+@app.route("/mission_planner/status")
+@login_required
+def mission_planner_status():
+    """JSON snapshot for the dashboard: sim mode?, last action, last error."""
+    return jsonify(mission_planner.status())
+
+
+@app.route("/mission_planner/disarm", methods=["POST"])
+@login_required
+def mission_planner_disarm():
+    """
+    Manual, human-initiated disarm. Deliberately NOT automatic — a human
+    should always be the one to stand a vehicle down, even though arming
+    can be triggered by a confirmed detection.
+    """
+    result = mission_planner.trigger(arm=False, reason=f"manual disarm by {session['email']}")
+    session["drone_alerted"] = False
+    session["consecutive_hits"] = 0
+    return jsonify(result)
 
 
 @app.route("/upload_training", methods=["POST"])
