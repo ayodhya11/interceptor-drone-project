@@ -88,3 +88,5 @@ HTTPS automatically, so this just works once deployed.
 - [ ] Phase 2 — Mission Planner integration (arm/disarm on first confirmed detection)
 ## Acknowledgments
    Built on Roboflow's hosted inference API and Ultralytics YOLO. Icons and color palette designed to match a tactical ground-control-station aesthetic.
+
+_Last updated: July 2026._
