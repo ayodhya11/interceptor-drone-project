@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.0-000000?logo=flask&logoColor=white)
 ![Roboflow](https://img.shields.io/badge/Inference-Roboflow-6706CE)
-![Tests](https://github.com/ayodhya11/interceptor-drone-project/actions/workflows/tests.yml/badge.svg)
+[![Tests](https://github.com/ayodhya11/interceptor-drone-project/actions/workflows/tests.yml/badge.svg)](https://github.com/ayodhya11/interceptor-drone-project/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Phase%201-Complete-brightgreen)
 ![Status](https://img.shields.io/badge/Phase%202-Planned-yellow)
