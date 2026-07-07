@@ -86,3 +86,5 @@ HTTPS automatically, so this just works once deployed.
 - [x] Phase 1 — webcam + upload detection, auto-logged results, dashboard
 - [x] Browser-based webcam capture (works when deployed publicly, not just locally)
 - [ ] Phase 2 — Mission Planner integration (arm/disarm on first confirmed detection)
+## Acknowledgments
+   Built on Roboflow's hosted inference API and Ultralytics YOLO. Icons and color palette designed to match a tactical ground-control-station aesthetic.
