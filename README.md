@@ -3,6 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.0-000000?logo=flask&logoColor=white)
 ![Roboflow](https://img.shields.io/badge/Inference-Roboflow-6706CE)
+![Tests](https://github.com/ayodhya11/interceptor-drone-project/actions/workflows/tests.yml/badge.svg)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Phase%201-Complete-brightgreen)
 ![Status](https://img.shields.io/badge/Phase%202-Planned-yellow)
@@ -53,6 +54,17 @@ cp .env.example .env      # add your ROBOFLOW_API_KEY, or leave blank for demo m
 python app.py
 ```
 Open http://127.0.0.1:5000
+
+## Testing
+```bash
+pip install pytest
+pytest tests/ -v
+```
+16 tests covering auth, demo-mode fallback, the `/infer_frame` endpoint (including
+the 2-in-a-row confirmation logic), snapshot saving, the JSON report export, and
+the detection-log aggregation — all run in demo mode, so they never make a real
+network call to Roboflow. This is the same suite GitHub Actions runs on every
+push (see the Tests badge above).
 
 ## Deploy it
 See `DEPLOYMENT.md` for step-by-step Render deployment instructions.
